@@ -1,0 +1,12 @@
+apiVersion: apps.hh.org/v1
+kind: AppSet
+metadata:
+  labels:
+    app.kubernetes.io/name: appset
+    app.kubernetes.io/instance: appset-sample
+    app.kubernetes.io/part-of: appset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: appset
+  name: appset-sample
+spec:
+  # TODO(user): Add fields here

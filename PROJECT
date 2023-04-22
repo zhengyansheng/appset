@@ -1,0 +1,16 @@
+domain: hh.org
+layout:
+- go.kubebuilder.io/v3
+projectName: appset
+repo: github.com/zhengyansheng/appset
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: hh.org
+  group: apps
+  kind: AppSet
+  path: github.com/zhengyansheng/appset/api/v1
+  version: v1
+version: "3"
