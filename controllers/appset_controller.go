@@ -18,13 +18,16 @@ package controllers
 
 import (
 	"context"
-
+	
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	
 	appsv1 "github.com/zhengyansheng/appset/api/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 // AppSetReconciler reconciles a AppSet object
@@ -48,9 +51,35 @@ type AppSetReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.13.0/pkg/reconcile
 func (r *AppSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-
+	
 	// TODO(user): your logic here
-
+	appSet := &appsv1.AppSet{}
+	if err := r.Get(ctx, req.NamespacedName, appSet); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Req object not found, Created objects are automatically garbage collected.
+			// For additional cleanup logic use finalizers.
+			// Return and don't requeue
+			
+			// create deployment
+			
+			// create service
+			
+			// create ingress
+			
+			// update status
+			
+			return reconcile.Result{}, nil
+		} else {
+			klog.Errorf("requesting app set operator err %v", err)
+			// Error reading the object - requeue the request.
+			return reconcile.Result{Requeue: true}, nil
+		}
+	}
+	klog.Infof("app set, foo: %v", appSet.Spec.Name)
+	
+	// https://github.com/caoyingjunz/podset-operator/blob/master/controllers/podset_controller.go
+	// https://github.com/zhengyansheng/learning/blob/master/kubernetes/operators/elasticweb-operator/controllers/elasticweb_controller.go
+	
 	return ctrl.Result{}, nil
 }
 

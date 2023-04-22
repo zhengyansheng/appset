@@ -10,3 +10,4 @@ metadata:
   name: appset-sample
 spec:
   # TODO(user): Add fields here
+  foo: "zhengyansheng"

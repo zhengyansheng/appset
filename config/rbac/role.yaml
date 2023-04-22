@@ -1,0 +1,33 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: manager-role
+rules:
+- apiGroups:
+  - apps.hh.org
+  resources:
+  - appsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps.hh.org
+  resources:
+  - appsets/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - apps.hh.org
+  resources:
+  - appsets/status
+  verbs:
+  - get
+  - patch
+  - update
