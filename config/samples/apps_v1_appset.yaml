@@ -10,4 +10,9 @@ metadata:
   name: appset-sample
 spec:
   # TODO(user): Add fields here
-  foo: "zhengyansheng"
+  name: "monkey"
+  namespace: "default"
+  replicas: 2
+  image: "nginx:latest"
+  expose_port: 80
+  expose_domain: www.monkey.com

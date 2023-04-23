@@ -18,25 +18,27 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"time"
 
+	appv1 "github.com/zhengyansheng/appset/api/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	appv1 "github.com/zhengyansheng/appset/api/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 // AppSetReconciler reconciles a AppSet object
 type AppSetReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme        *runtime.Scheme
+	EventRecorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=apps.hh.org,resources=appsets,verbs=get;list;watch;create;update;patch;delete
@@ -64,62 +66,47 @@ func (r *AppSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		//return ctrl.Result{RequeueAfter: time.Second * 10}, err
 		return ctrl.Result{}, err
 	}
+	object := appv1.AppSet{ObjectMeta: appSet.ObjectMeta}
 
-	foundDeployment := &appsv1.Deployment{}
-	if err := r.Get(ctx, req.NamespacedName, foundDeployment); err != nil {
-		if apierrors.IsNotFound(err) {
-			// Req object not found, Created objects are automatically garbage collected.
-			// For additional cleanup logic use finalizers.
-			// Return and don't requeue
-
-			// create deployment
-			if err := r.CreateDeployment(ctx, appSet); err != nil {
-				return ctrl.Result{}, err
-			}
-
-			// create service
-			service := &corev1.Service{}
-			if err := r.Get(ctx, req.NamespacedName, service); err != nil {
-				if apierrors.IsNotFound(err) {
-					if err := r.CreateService(ctx, appSet); err != nil {
-						return ctrl.Result{}, err
-					}
-				}
-			}
-
-			// create ingress
-			ingress := &networkv1.Ingress{}
-			if err := r.Get(ctx, req.NamespacedName, ingress); err != nil {
-				if apierrors.IsNotFound(err) {
-					if err := r.CreateIngress(ctx, appSet); err != nil {
-						return ctrl.Result{}, err
-					}
-				}
-			}
-
-			// update status
-			if err = r.updateStatus(ctx, appSet); err != nil {
-				return ctrl.Result{}, err
-			}
-
-			return reconcile.Result{}, nil
-		} else {
-			klog.Errorf("requesting app set operator err %v", err)
-			// Error reading the object - requeue the request.
-			return reconcile.Result{Requeue: true}, nil
-		}
+	// deployment
+	if err := r.UpCreateDeployment(ctx, req, appSet); err != nil {
+		return ctrl.Result{RequeueAfter: time.Second * 10}, err
 	}
-	klog.Infof("app set, foo: %v", appSet.Spec.Name)
+	r.EventRecorder.Event(&object, corev1.EventTypeNormal, "Created", fmt.Sprintf("deployment %d finish", appSet.Spec.Replicas))
+
+	// service
+	if err := r.CreateServiceIfNotExists(ctx, req, appSet); err != nil {
+		return ctrl.Result{}, err
+	}
+	r.EventRecorder.Event(&object, corev1.EventTypeNormal, "Created", fmt.Sprintf("service finish"))
+
+	// ingress
+	if err := r.CreateIngressIfNotExists(ctx, req, appSet); err != nil {
+		return ctrl.Result{}, err
+	}
+	r.EventRecorder.Event(&object, corev1.EventTypeNormal, "Created", fmt.Sprintf("ingress finish"))
+
+	klog.Infof("app set: %+v", appSet)
 
 	// https://github.com/caoyingjunz/podset-operator/blob/master/controllers/podset_controller.go
 	// https://github.com/zhengyansheng/learning/blob/master/kubernetes/operators/elasticweb-operator/controllers/elasticweb_controller.go
+
+	if err := r.statusUpdate(ctx, appSet); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AppSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// reference https://github.com/kubernetes-sigs/kubebuilder/issues/549
+	r.EventRecorder = mgr.GetEventRecorderFor("appset-controller")
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appv1.AppSet{}).
+		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
+		Owns(&networkv1.Ingress{}).
 		Complete(r)
 }
