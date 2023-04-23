@@ -27,12 +27,13 @@ import (
 type AppSetSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	
+
 	// Foo is an example field of AppSet. Edit appset_types.go to remove/update
 	Name         string `json:"name,omitempty"` // monkey
-	Replicas     int    `json:"replicas"`       // 2
+	Namespace    string `json:"namespace"`      // namespace
+	Replicas     int32  `json:"replicas"`       // 2
 	Image        string `json:"image"`          // nginx:latest
-	Port         int    `json:"port"`           // 80
+	ExposePort   int32  `json:"expose_port"`    // 80
 	ExposeDomain string `json:"expose_domain"`  // www.monkey.com
 }
 
@@ -49,7 +50,7 @@ type AppSetStatus struct {
 type AppSet struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	
+
 	Spec   AppSetSpec   `json:"spec,omitempty"`
 	Status AppSetStatus `json:"status,omitempty"`
 }
