@@ -29,12 +29,10 @@ type AppSetSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of AppSet. Edit appset_types.go to remove/update
-	Name         string `json:"name,omitempty"` // monkey
-	Namespace    string `json:"namespace"`      // namespace
-	Replicas     int32  `json:"replicas"`       // 2
-	Image        string `json:"image"`          // nginx:latest
-	ExposePort   int32  `json:"expose_port"`    // 80
-	ExposeDomain string `json:"expose_domain"`  // www.monkey.com
+	Replicas     int32  `json:"replicas"`      // 2
+	Image        string `json:"image"`         // nginx:latest
+	ExposePort   int32  `json:"expose_port"`   // 80
+	ExposeDomain string `json:"expose_domain"` // www.monkey.com
 }
 
 // AppSetStatus defines the observed state of AppSet
@@ -47,6 +45,7 @@ type AppSetStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:shortName=as
 
 // AppSet is the Schema for the appsets API
 type AppSet struct {

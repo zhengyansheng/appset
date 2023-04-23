@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 
 	appv1 "github.com/zhengyansheng/appset/api/v1"
@@ -25,13 +26,14 @@ const (
 	memLimit   = "512Mi"
 )
 
+// UpCreateDeployment create or update deployment
 func (r *AppSetReconciler) UpCreateDeployment(ctx context.Context, req ctrl.Request, instance *appv1.AppSet) error {
 	found := &appsv1.Deployment{}
 	err := r.Get(ctx, req.NamespacedName, found)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			// new deployment
-			deployment := generatorDeployment(instance)
+			deployment := generatorDeployment(instance, req)
 
 			klog.Info("set reference by ingress")
 			if err := controllerutil.SetControllerReference(instance, deployment, r.Scheme); err != nil {
@@ -44,54 +46,34 @@ func (r *AppSetReconciler) UpCreateDeployment(ctx context.Context, req ctrl.Requ
 				klog.Errorf("create deployment err: %v", err)
 				return err
 			}
+			r.EventRecorder.Event(&r.Object, corev1.EventTypeNormal, "ScalingDeployment", fmt.Sprintf("Scaled up deployment to %d", instance.Spec.Replicas))
 			return nil
 		}
 		return err
 	}
-	//
-	//// update fields replicas/ image
-	expected := generatorDeployment(instance)
-	klog.Infof("found spec replicas: %+v\n", found.Spec.Replicas)
-	klog.Infof("expected spec replicas: %+v\n", expected.Spec.Replicas)
+
+	expected := generatorDeployment(instance, req)
+	klog.Infof("found spec replicas: %v", *found.Spec.Replicas)
+	klog.Infof("expected spec replicas: %v", *expected.Spec.Replicas)
 	if !reflect.DeepEqual(found.Spec, expected.Spec) {
 		found.Spec = expected.Spec
 		if err := r.Update(ctx, found); err != nil {
 			return err
 		}
 	}
+	r.EventRecorder.Event(&r.Object, corev1.EventTypeNormal, "UpdateDeployment", fmt.Sprintf("Scaled up deployment to %d", instance.Spec.Replicas))
 
 	return nil
 }
 
-func (r *AppSetReconciler) CreateServiceIfNotExists(ctx context.Context, req ctrl.Request, instance *appv1.AppSet) error {
+// UpCreateService create or update service
+func (r *AppSetReconciler) UpCreateService(ctx context.Context, req ctrl.Request, instance *appv1.AppSet) error {
 	found := &corev1.Service{}
-	if err := r.Get(ctx, req.NamespacedName, found); err != nil {
+	err := r.Get(ctx, req.NamespacedName, found)
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			// new service
-			service := &corev1.Service{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: instance.Namespace,
-					Name:      instance.Name,
-					OwnerReferences: []metav1.OwnerReference{
-						*metav1.NewControllerRef(instance, schema.GroupVersionKind{
-							Group:   appv1.GroupVersion.Group,
-							Version: appv1.GroupVersion.Version,
-							Kind:    "AppSet",
-						}),
-					},
-				},
-				Spec: corev1.ServiceSpec{
-					Ports: []corev1.ServicePort{{
-						Name:       "http",
-						Port:       instance.Spec.ExposePort,
-						TargetPort: intstr.IntOrString{Type: 0, IntVal: 80},
-					}},
-					Selector: map[string]string{
-						"app": instance.Name,
-					},
-					Type: corev1.ServiceTypeClusterIP,
-				},
-			}
+			service := generatorService(instance, req)
 			if err := controllerutil.SetControllerReference(instance, service, r.Scheme); err != nil {
 				klog.Error(err, "set service controller reference err")
 				return err
@@ -99,60 +81,35 @@ func (r *AppSetReconciler) CreateServiceIfNotExists(ctx context.Context, req ctr
 
 			// create service
 			if err := r.Create(ctx, service); err != nil {
-				klog.Error(err, "create service err")
+				klog.Errorf("create service err: %v", err)
 				return err
 			}
 			klog.Info("create service finish")
+			r.EventRecorder.Event(&r.Object, corev1.EventTypeNormal, "Created", fmt.Sprintf("service finish"))
+			return nil
+		}
+		return err
+	}
+
+	expected := generatorService(instance, req)
+	if !reflect.DeepEqual(found.Spec, expected.Spec) {
+		found.Spec = expected.Spec
+		if err := r.Update(ctx, found); err != nil {
+			return err
 		}
 	}
+	r.EventRecorder.Event(&r.Object, corev1.EventTypeNormal, "Updated", fmt.Sprintf("service finish"))
 	return nil
 }
 
-func (r *AppSetReconciler) CreateIngressIfNotExists(ctx context.Context, req ctrl.Request, instance *appv1.AppSet) error {
+// UpCreateIngress create or update ingress
+func (r *AppSetReconciler) UpCreateIngress(ctx context.Context, req ctrl.Request, instance *appv1.AppSet) error {
 	found := &networkv1.Ingress{}
-	if err := r.Get(ctx, req.NamespacedName, found); err != nil {
+	err := r.Get(ctx, req.NamespacedName, found)
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			// new ingress
-			pathType := networkv1.PathTypeImplementationSpecific
-			ingress := &networkv1.Ingress{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: instance.Namespace,
-					Name:      instance.Name,
-					OwnerReferences: []metav1.OwnerReference{
-						*metav1.NewControllerRef(instance, schema.GroupVersionKind{
-							Group:   appv1.GroupVersion.Group,
-							Version: appv1.GroupVersion.Version,
-							Kind:    "AppSet",
-						}),
-					},
-				},
-				Spec: networkv1.IngressSpec{
-					Rules: []networkv1.IngressRule{
-						{
-							Host: instance.Spec.ExposeDomain,
-							IngressRuleValue: networkv1.IngressRuleValue{
-								HTTP: &networkv1.HTTPIngressRuleValue{
-									Paths: []networkv1.HTTPIngressPath{
-										{
-											Path:     "/",
-											PathType: &pathType,
-											Backend: networkv1.IngressBackend{
-												Service: &networkv1.IngressServiceBackend{
-													Name: instance.Name,
-													Port: networkv1.ServiceBackendPort{
-														//Name:   defaultPortName,
-														Number: instance.Spec.ExposePort,
-													},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			ingress := generatorIngress(instance, req)
 
 			klog.Info("set reference by ingress")
 			if err := controllerutil.SetControllerReference(instance, ingress, r.Scheme); err != nil {
@@ -165,9 +122,20 @@ func (r *AppSetReconciler) CreateIngressIfNotExists(ctx context.Context, req ctr
 				klog.Errorf("create ingress err: %v", err)
 				return err
 			}
-			klog.Info("create ingress success")
+			r.EventRecorder.Event(&r.Object, corev1.EventTypeNormal, "Created", fmt.Sprintf("ingress domain %v", instance.Spec.ExposeDomain))
+			return nil
+		}
+		return err
+	}
+
+	expected := generatorIngress(instance, req)
+	if !reflect.DeepEqual(found.Spec, expected.Spec) {
+		found.Spec = expected.Spec
+		if err := r.Update(ctx, found); err != nil {
+			return err
 		}
 	}
+	r.EventRecorder.Event(&r.Object, corev1.EventTypeNormal, "Updated", fmt.Sprintf("ingress domain %v", instance.Spec.ExposeDomain))
 	return nil
 }
 
@@ -187,11 +155,11 @@ func (r *AppSetReconciler) statusUpdate(ctx context.Context, instance *appv1.App
 	return nil
 }
 
-func generatorDeployment(instance *appv1.AppSet) *appsv1.Deployment {
+func generatorDeployment(instance *appv1.AppSet, req ctrl.Request) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: instance.Namespace,
-			Name:      instance.Name,
+			Namespace: req.Namespace,
+			Name:      req.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(instance, schema.GroupVersionKind{
 					Group:   appv1.GroupVersion.Group,
@@ -240,6 +208,76 @@ func generatorDeployment(instance *appv1.AppSet) *appsv1.Deployment {
 					},
 				},
 			},
+		},
+	}
+}
+
+func generatorIngress(instance *appv1.AppSet, req ctrl.Request) *networkv1.Ingress {
+	pathType := networkv1.PathTypeImplementationSpecific
+	return &networkv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: req.Namespace,
+			Name:      req.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(instance, schema.GroupVersionKind{
+					Group:   appv1.GroupVersion.Group,
+					Version: appv1.GroupVersion.Version,
+					Kind:    "AppSet",
+				}),
+			},
+		},
+		Spec: networkv1.IngressSpec{
+			Rules: []networkv1.IngressRule{
+				{
+					Host: instance.Spec.ExposeDomain,
+					IngressRuleValue: networkv1.IngressRuleValue{
+						HTTP: &networkv1.HTTPIngressRuleValue{
+							Paths: []networkv1.HTTPIngressPath{
+								{
+									Path:     "/",
+									PathType: &pathType,
+									Backend: networkv1.IngressBackend{
+										Service: &networkv1.IngressServiceBackend{
+											Name: instance.Name,
+											Port: networkv1.ServiceBackendPort{
+												//Name:   defaultPortName,
+												Number: instance.Spec.ExposePort,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func generatorService(instance *appv1.AppSet, req ctrl.Request) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: req.Namespace,
+			Name:      req.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(instance, schema.GroupVersionKind{
+					Group:   appv1.GroupVersion.Group,
+					Version: appv1.GroupVersion.Version,
+					Kind:    "AppSet",
+				}),
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{{
+				Name:       "http",
+				Port:       instance.Spec.ExposePort,
+				TargetPort: intstr.IntOrString{Type: 0, IntVal: 80},
+			}},
+			Selector: map[string]string{
+				"app": instance.Name,
+			},
+			Type: corev1.ServiceTypeClusterIP,
 		},
 	}
 }

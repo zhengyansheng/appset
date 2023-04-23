@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	appv1 "github.com/zhengyansheng/appset/api/v1"
@@ -28,7 +27,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -39,6 +37,7 @@ type AppSetReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
 	EventRecorder record.EventRecorder
+	Object        appv1.AppSet
 }
 
 //+kubebuilder:rbac:groups=apps.hh.org,resources=appsets,verbs=get;list;watch;create;update;patch;delete
@@ -66,30 +65,22 @@ func (r *AppSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		//return ctrl.Result{RequeueAfter: time.Second * 10}, err
 		return ctrl.Result{}, err
 	}
-	object := appv1.AppSet{ObjectMeta: appSet.ObjectMeta}
+	r.Object = appv1.AppSet{ObjectMeta: appSet.ObjectMeta}
 
 	// deployment
 	if err := r.UpCreateDeployment(ctx, req, appSet); err != nil {
 		return ctrl.Result{RequeueAfter: time.Second * 10}, err
 	}
-	r.EventRecorder.Event(&object, corev1.EventTypeNormal, "Created", fmt.Sprintf("deployment %d finish", appSet.Spec.Replicas))
 
 	// service
-	if err := r.CreateServiceIfNotExists(ctx, req, appSet); err != nil {
+	if err := r.UpCreateService(ctx, req, appSet); err != nil {
 		return ctrl.Result{}, err
 	}
-	r.EventRecorder.Event(&object, corev1.EventTypeNormal, "Created", fmt.Sprintf("service finish"))
 
 	// ingress
-	if err := r.CreateIngressIfNotExists(ctx, req, appSet); err != nil {
+	if err := r.UpCreateIngress(ctx, req, appSet); err != nil {
 		return ctrl.Result{}, err
 	}
-	r.EventRecorder.Event(&object, corev1.EventTypeNormal, "Created", fmt.Sprintf("ingress finish"))
-
-	klog.Infof("app set: %+v", appSet)
-
-	// https://github.com/caoyingjunz/podset-operator/blob/master/controllers/podset_controller.go
-	// https://github.com/zhengyansheng/learning/blob/master/kubernetes/operators/elasticweb-operator/controllers/elasticweb_controller.go
 
 	if err := r.statusUpdate(ctx, appSet); err != nil {
 		return ctrl.Result{}, err

@@ -12,6 +12,8 @@ spec:
     kind: AppSet
     listKind: AppSetList
     plural: appsets
+    shortNames:
+    - as
     singular: appset
   scope: Namespaced
   versions:
@@ -42,20 +44,15 @@ spec:
                 type: integer
               image:
                 type: string
-              name:
+              replicas:
                 description: Foo is an example field of AppSet. Edit appset_types.go
                   to remove/update
-                type: string
-              namespace:
-                type: string
-              replicas:
                 format: int32
                 type: integer
             required:
             - expose_domain
             - expose_port
             - image
-            - namespace
             - replicas
             type: object
           status:

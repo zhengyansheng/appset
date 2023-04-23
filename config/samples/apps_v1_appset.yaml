@@ -8,11 +8,11 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/created-by: appset
   name: appset-sample
+  namespace: devops
 spec:
   # TODO(user): Add fields here
-  name: "monkey"
-  namespace: "default"
-  replicas: 2
-  image: "nginx:latest"
+  replicas: 3
+  # latest | stable-perl
+  image: "nginx:stable-perl"
   expose_port: 80
-  expose_domain: www.monkey.com
+  expose_domain: www.monkey.org
