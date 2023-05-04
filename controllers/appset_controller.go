@@ -58,6 +58,8 @@ func (r *AppSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// TODO(user): your logic here
 	appSet := &appv1.AppSet{}
+	// TODO:
+	// req.NamespacedName 是如何获取，感觉是全局获取的
 	if err := r.Get(ctx, req.NamespacedName, appSet); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -82,6 +84,7 @@ func (r *AppSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
+	// status
 	if err := r.statusUpdate(ctx, appSet); err != nil {
 		return ctrl.Result{}, err
 	}

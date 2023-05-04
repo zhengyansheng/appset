@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/created-by: appset
   name: appset-sample
-  namespace: devops
+  namespace: default
 spec:
   # TODO(user): Add fields here
   replicas: 3

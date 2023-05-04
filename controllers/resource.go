@@ -14,8 +14,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -35,14 +37,13 @@ func (r *AppSetReconciler) UpCreateDeployment(ctx context.Context, req ctrl.Requ
 			// new deployment
 			deployment := generatorDeployment(instance, req)
 
-			klog.Info("set reference by ingress")
 			if err := controllerutil.SetControllerReference(instance, deployment, r.Scheme); err != nil {
 				klog.Error(err, "set deployment controller reference err")
 				return err
 			}
 
 			// create deployment
-			if err := r.Create(ctx, deployment); err != nil {
+			if err := r.CreateRetryOnConflict(ctx, deployment); err != nil {
 				klog.Errorf("create deployment err: %v", err)
 				return err
 			}
@@ -51,17 +52,17 @@ func (r *AppSetReconciler) UpCreateDeployment(ctx context.Context, req ctrl.Requ
 		}
 		return err
 	}
+	foundCp := found.DeepCopy()
 
 	expected := generatorDeployment(instance, req)
-	klog.Infof("found spec replicas: %v", *found.Spec.Replicas)
-	klog.Infof("expected spec replicas: %v", *expected.Spec.Replicas)
-	if !reflect.DeepEqual(found.Spec, expected.Spec) {
-		found.Spec = expected.Spec
-		if err := r.Update(ctx, found); err != nil {
+	if !reflect.DeepEqual(foundCp.Spec, expected.Spec) {
+		klog.Infof("found replicas: %v, expected replicas: %v", *foundCp.Spec.Replicas, *expected.Spec.Replicas)
+		foundCp.Spec = expected.Spec
+		if err := r.Update(ctx, foundCp); err != nil {
 			return err
 		}
+		r.EventRecorder.Event(&r.Object, corev1.EventTypeNormal, "UpdateDeployment", fmt.Sprintf("Scaled up deployment to %d", instance.Spec.Replicas))
 	}
-	r.EventRecorder.Event(&r.Object, corev1.EventTypeNormal, "UpdateDeployment", fmt.Sprintf("Scaled up deployment to %d", instance.Spec.Replicas))
 
 	return nil
 }
@@ -80,7 +81,7 @@ func (r *AppSetReconciler) UpCreateService(ctx context.Context, req ctrl.Request
 			}
 
 			// create service
-			if err := r.Create(ctx, service); err != nil {
+			if err := r.CreateRetryOnConflict(ctx, service); err != nil {
 				klog.Errorf("create service err: %v", err)
 				return err
 			}
@@ -97,8 +98,8 @@ func (r *AppSetReconciler) UpCreateService(ctx context.Context, req ctrl.Request
 		if err := r.Update(ctx, found); err != nil {
 			return err
 		}
+		r.EventRecorder.Event(&r.Object, corev1.EventTypeNormal, "Updated", fmt.Sprintf("service finish"))
 	}
-	r.EventRecorder.Event(&r.Object, corev1.EventTypeNormal, "Updated", fmt.Sprintf("service finish"))
 	return nil
 }
 
@@ -111,14 +112,13 @@ func (r *AppSetReconciler) UpCreateIngress(ctx context.Context, req ctrl.Request
 			// new ingress
 			ingress := generatorIngress(instance, req)
 
-			klog.Info("set reference by ingress")
 			if err := controllerutil.SetControllerReference(instance, ingress, r.Scheme); err != nil {
 				klog.Error(err, "set ingress controller reference err")
 				return err
 			}
 
 			// create ingress
-			if err := r.Create(ctx, ingress); err != nil {
+			if err := r.CreateRetryOnConflict(ctx, ingress); err != nil {
 				klog.Errorf("create ingress err: %v", err)
 				return err
 			}
@@ -134,8 +134,8 @@ func (r *AppSetReconciler) UpCreateIngress(ctx context.Context, req ctrl.Request
 		if err := r.Update(ctx, found); err != nil {
 			return err
 		}
+		r.EventRecorder.Event(&r.Object, corev1.EventTypeNormal, "Updated", fmt.Sprintf("ingress domain %v", instance.Spec.ExposeDomain))
 	}
-	r.EventRecorder.Event(&r.Object, corev1.EventTypeNormal, "Updated", fmt.Sprintf("ingress domain %v", instance.Spec.ExposeDomain))
 	return nil
 }
 
@@ -147,12 +147,13 @@ func (r *AppSetReconciler) statusUpdate(ctx context.Context, instance *appv1.App
 
 	instance.Status.Replicas = &instance.Spec.Replicas
 	instance.Status.Ready = true
-	if err := r.Status().Update(ctx, instance); err != nil {
-		klog.Errorf("appset update err: %v", err)
-		return err
-	}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		return r.Status().Update(ctx, instance)
+	})
+}
 
-	return nil
+func (r *AppSetReconciler) CreateRetryOnConflict(ctx context.Context, obj client.Object) error {
+	return r.Create(ctx, obj)
 }
 
 func generatorDeployment(instance *appv1.AppSet, req ctrl.Request) *appsv1.Deployment {
